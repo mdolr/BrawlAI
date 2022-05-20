@@ -35,18 +35,22 @@ class ImageCaptureEnv(gym.Env):
         # The other corresponds to a binary choice for pressing X C and V
         # gym.spaces.MultiDiscrete([5, 2, 2, 2])
         self.action_space = gym.spaces.Discrete(15)
-
+        
         # The model that will evolve in this environment
         self.model = model(self)
 
         self.previous_observation = None
 
         # Screen capture parameters
-        self.monitor = {'left': 0, 'top': 70, 'width': 1728, 'height': 1117}
+        self.monitor = {'left': 0, 'top': 100, 'bottom':70, 'width': 3456, 'height': 2234}
         self.sct = None
 
         with mss() as sct:
             self.sct = sct
+
+        self.direction = None
+        self.last_health = 0
+        self.reward = 0
 
     def reset(self):
         """
@@ -60,60 +64,84 @@ class ImageCaptureEnv(gym.Env):
         This function runs at each step and executes the action
         then computes the reward and checks if the episode is over.
         """
+        #print(action)
+        if len(str(action)) >= 2:
+          action = np.argmax(action)
+        
+        print(f'Action: {action}')
 
-        action = np.argmax(action)
+        if self.direction is not None:
+            self.keyboard.release(self.direction)
+            self.direction = None
 
         if action % 4 == 0:
-            self.keyboard.tap(pynput.keyboard.Key.left)
+            self.direction = pynput.keyboard.Key.left
         elif action % 4 == 1:
-            self.keyboard.tap(pynput.keyboard.Key.right)
+            self.direction = pynput.keyboard.Key.right
         elif action % 4 == 2:
-            self.keyboard.tap(pynput.keyboard.Key.up)
+            self.direction = pynput.keyboard.Key.up
         elif action % 4 == 3:
-            self.keyboard.tap(pynput.keyboard.Key.down)
+            self.direction = pynput.keyboard.Key.down
 
-        elif action >= 4 and action < 8:
-            self.keyboard.tap(pynput.keyboard.Key.x)
+        self.keyboard.press(self.direction)
+
+        if action >= 4 and action < 8:
+            self.keyboard.tap('x')
         elif action >= 8 and action < 12:
-            self.keyboard.tap(pynput.keyboard.Key.c)
+            self.keyboard.tap('c')
         elif action >= 12 and action < 16:
-            self.keyboard.tap(pynput.keyboard.Key.v)
+            self.keyboard.tap('v')
 
         # reward = % de rouge + difference de vie
 
         sct_img = self.sct.grab(self.monitor)
         shot = np.array(Image.frombytes(
             'RGB', sct_img.size, sct_img.bgra, 'raw', 'BGRX'))
+        
         gray = cv2.cvtColor(shot, cv2.COLOR_BGR2GRAY)
+        gray = gray[350:2050, 750:]
+        gray = cv2.resize(gray, (0,0), fx=0.25, fy=0.25)
 
-        self_life_count_crop = shot[100:200, 3000:3100]
-        opponent_life_count_crop = shot[100:200, 3200:3280]
-
-        self_health_crop = shot[150, 3175]
-        opponent_health_crop = shot[160, 3345]
-
+        self_life_count_crop = shot[50:125, 3100:3160]
+        opponent_life_count_crop = shot[50:125, 3270:3330]
+    
+        self_health_crop = shot[110, 3168]
+        opponent_health_crop = shot[110, 3338]
+        """
         self_life_count = pytesseract.image_to_string(self_life_count_crop, lang='eng',
-                                                      config='--psm 10 --oem 3 -c tessedit_char_whitelist=-10123456789')
+                                                      config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
         opponent_life_count = pytesseract.image_to_string(opponent_life_count_crop, lang='eng',
-                                                          config='--psm 10 --oem 3 -c tessedit_char_whitelist=-10123456789')
+                                                          config='--psm 10 --oem 3 -c tessedit_char_whitelist=0123456789')
+        """
+        self_health = [abs(255 - health) for health in self_health_crop]
+        self_health = (np.sum(self_health) / (255*3)) 
 
-        self_health = self_health_crop[2] / sum(self_health_crop)
-        opponent_health = opponent_health_crop[2] / sum(opponent_health_crop)
+        #self_health = self_health_crop[2] / sum(self_health_crop)
+        #opponent_health = opponent_health_crop[2] / sum(opponent_health_crop)
+        """
+        #print(
+        #    f'PyTesseract pre-if self: {self_life_count} opponent: {opponent_life_count}')
 
-        print(
-            f'PyTesseract pre-if self: {self_life_count} opponent: {opponent_life_count}')
-
-        if self_life_count == '':
+        if self_life_count == '' or self_life_count == '-':
             self_life_count = 3
 
-        if opponent_life_count == '':
+        if opponent_life_count == '' or opponent_life_count == '-':
             opponent_life_count = 3
+        """
+        #print(
+        #    f'PyTesseract post-if self: {self_life_count} opponent: {opponent_life_count}')
 
-        print(
-            f'PyTesseract post-if self: {self_life_count} opponent: {opponent_life_count}')
+        #reward = (int(self_life_count) - int(opponent_life_count)) * \
+        #    255 + (self_health - opponent_health) * 255
+        print(self_health)
+        
+        if self_health > self.last_health:
+            self.reward += self_health
+            self.last_health = self_health
 
-        reward = (int(self_life_count) - int(opponent_life_count)) * \
-            255 + (self_health - opponent_health) * 255
+        reward = self.reward
+
+        print(f'Reward: {reward}')
 
         if self.previous_observation is not None:
             self.model.update_replay_memory(
@@ -121,8 +149,10 @@ class ImageCaptureEnv(gym.Env):
 
         self.previous_observation = gray
 
+        """
         if self_life_count == 0 or opponent_life_count == 0:
             self.reset()
+        """
 
         observation = gray
 

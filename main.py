@@ -11,30 +11,31 @@ from custom_env.image_capture import ImageCaptureEnv
 from utils.modified_tensorboard import ModifiedTensorBoard
 
 os.environ['TF_KERAS'] = '1'
-
+#os.environ['TF_GPU_ALLOCATOR']='cuda_malloc_async'
+os.environ['TF_CUDNN_USE_AUTOTUNE'] = '0'
+os.environ['TF_FORCE_GPU_ALLOW_GROWTH'] = 'true'
 # Create models folder
 if not os.path.isdir('models'):
     os.makedirs('models')
 
-
 # Model parameters
 DISCOUNT = 0.99
-REPLAY_MEMORY_SIZE = 1  # 50_000  # How many last steps to keep for model training
+REPLAY_MEMORY_SIZE = 50_000  # How many last steps to keep for model training
 # Minimum number of steps in a memory to start training
-MIN_REPLAY_MEMORY_SIZE = 1  # 1_000
-MINIBATCH_SIZE = 64  # How many steps (samples) to use for training
+MIN_REPLAY_MEMORY_SIZE = 1_000
+MINIBATCH_SIZE = 4  # How many steps (samples) to use for training
 UPDATE_TARGET_EVERY = 5  # Terminal states (end of episodes)
 MODEL_NAME = 'BOX'
 
-ELIPSON_DECAY = 0.999988877665
+ELIPSON_DECAY = 0.8 #0.999988877665
 MIN_EPSILON = 0.0001
 
 ep_rewards = [-200]
 
-HEIGHT = 2234
-WIDTH = 3456
+HEIGHT = 425
+WIDTH = 676
 
-steps = 5
+steps = 500_000
 
 
 class DQNAgent:
@@ -59,7 +60,7 @@ class DQNAgent:
         self.target_update_counter = 0
 
     def create_model(self,):
-        with tf.device('cpu:0'):
+        #with tf.device('/GPU:0'):
             model = Sequential()
 
             observation_space = steps, WIDTH, HEIGHT, 1
@@ -92,7 +93,7 @@ class DQNAgent:
         self.replay_memory.append(transition)
 
     def get_qs(self, state):
-        x = np.array(state).reshape(-1, *state.shape, 1)/255
+        x = np.array(state).reshape(-1, WIDTH, HEIGHT, 1)/255
         print(x.shape)
         return self.model.predict(x)[0]
 
@@ -157,7 +158,7 @@ class DQNAgent:
 random.seed(1)
 np.random.seed(1)
 
-epsilon = 0.1
+epsilon = 0.5
 decay = 0.99998
 min = 0.001
 
@@ -174,7 +175,7 @@ for i in range(0, steps):
     print(f'Step {i}')
     rand = random.random()
     if rand < epsilon or env.previous_observation is None:
-        print('Exploration')
+        print(f'Exploration epsilon={epsilon}')
         env.step(env.action_space.sample())
         epsilon *= decay
     else:
